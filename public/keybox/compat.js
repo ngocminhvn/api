@@ -63,7 +63,7 @@ export function buildKeyboxSummary(row, origin) {
     device_id: metadata.deviceId,
     status,
     profile: "unknown", // RKP/HW requires certificate-chain analysis.
-    download_url: `${origin}/?type=keybox&mode=download&id=${row.id}`,
+    download_url: `${origin}/keybox?action=download&id=${row.id}`,
     source,
     uploaded_at: asIsoTimestamp(row.created_at),
     is_rkp: null,

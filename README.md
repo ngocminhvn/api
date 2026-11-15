@@ -4,7 +4,7 @@ Backend-only Cloudflare Worker, with Keybox data ingestion from publicly shared 
 
 ## Layout
 
-- `index.js`: root API router (`?type=keybox&mode=...`) and scheduled handler.
+- `index.js`: path API router (`/keybox?action=...`) and scheduled handler.
 - `public/keybox/ingest.js`: source-specific ingestion (not publicly served).
 - `public/keybox/index.js`: database API responses.
 - `migrations/0001_init.sql`: D1 SQLite tables and initial sources.
@@ -24,11 +24,11 @@ All XML records are deduplicated by SHA-256 in D1, while failed polls leave exis
 
 ## Endpoints
 
-- `/?type=keybox&mode=health`: Worker health and whether D1 is bound.
-- `/?type=keybox&mode=sources`: scan times, count and errors by source.
-- `/?type=keybox&mode=status`: Keybox Hub-compatible status JSON (counts, timestamps, keyboxes metadata; unverified keys stay marked as unverified).
-- `/?type=keybox&mode=update`: Keybox Hub-compatible update JSON (last_updated, status, total_valid, last_looted_at).
-- `/?type=keybox&mode=download`: random imported XML, or `&id=NUMBER`, or `&format=json` (Keybox Hub JSON fields: id, status, deviceId, algorithm, xml).
+- `/keybox?action=health`: Worker health and whether D1 is bound.
+- `/keybox?action=sources`: scan times, count and errors by source.
+- `/keybox?action=status`: Keybox Hub-compatible status JSON (counts, timestamps, keyboxes metadata; unverified keys stay marked as unverified).
+- `/keybox?action=update`: Keybox Hub-compatible update JSON (last_updated, status, total_valid, last_looted_at).
+- `/keybox?action=download`: random imported XML, or `&id=NUMBER`, or `&format=json` (Keybox Hub JSON fields: id, status, deviceId, algorithm, xml).
 
 RKP/HW profile classification is **not implemented**; `profile=rkp` / `profile=hw` return HTTP 422 rather than a fabricated classification. Use `profile=all` or omit profile.
 
@@ -41,10 +41,30 @@ Test locally: `npm test`. To test cron locally with Wrangler: `npx wrangler dev 
 
 ## Keybox Hub JSON compatibility
 
-The public API mirrors the JSON field names from [hzzmonetvn/keyboxhub-web](https://github.com/hzzmonetvn/keyboxhub-web) for status, update, sources, and JSON download, while retaining the root `?type=keybox&mode=...` router.
+The public API mirrors the JSON field names from [hzzmonetvn/keyboxhub-web](https://github.com/hzzmonetvn/keyboxhub-web) for status, update, sources, and JSON download, with the `/keybox?action=...` router. The old `/?type=keybox&mode=...` URLs still work for compatibility.
 
 The `status` response includes `status`, `total_valid`, `total_hw_valid`, `total_rkp_valid`, `strong_count`, `device_count`, `banned_count`, `softbanned_count`, `total_keys`, `last_updated`, `last_looted_at`, and `keyboxes`. Each keybox has metadata fields matching the original project; download URLs use this project's root query router.
 
 **Important:** This is JSON *schema* compatibility, not cryptographic validation parity. The original project evaluates certificate chains and revocation sources. This Worker does not. Unclassified records appear with `status: "unverified"`, `profile: "unknown"`, and `is_rkp: null`; confirmed valid counters remain zero rather than being fabricated. `softbanned_count` is zero because the Worker does not have softban verification. Counts and entry fields are not a guarantee of attestation validity.
 
 Only metadata (never XML/private key material) is returned by `mode=status`. The `mode=download&format=json` endpoint intentionally returns the requested XML as with the reference project. `mode=status` lists at most 100 items per response; `&limit=50&offset=50` paginates larger datasets.
+
+
+## Client-speed Pixeldrain benchmark
+
+Open `https://api.ngocminh.io.vn/pixeldrian` **on the device whose download speed you want to measure**.
+This small HTML page runs JavaScript in your browser and shows an incrementally updated JSON result in a `<pre>` block.
+It measures download duration with your device's `performance.now()` clock, rather than the Worker's clock.
+A rerun button starts a completely fresh scan; **there is no D1, KV, or result cache for this endpoint**.
+
+For each of `cdn1` to `cdn32.pixeldrain.eu.cc`, the page fetches `/pixeldrian?cdn=N` on the same origin.
+The Worker acts only as a streaming proxy to avoid cross-origin CORS problems; the timed connection is
+**your browser → Cloudflare Worker → CDN**, so results include Cloudflare proxy overhead and do **not**
+measure a direct browser → CDN link. Each probe streams exactly 10,000,000 bytes (10 decimal MB)
+using sequential 4 MB, 4 MB, and 2 MB HTTP byte-range requests. CDNs that do not honor ranges
+are reported as errors. The maximum network transfer for one full scan is about **320 MB**, plus overhead.
+At most 3 downloads run concurrently and each has a 90-second browser timeout.
+
+`/pixeldrian` is a browser-rendered JSON report (Content-Type: text/html), not a literal server-generated
+JSON response; a server cannot determine the visitor's download time on its own.
+The proxy `/pixeldrian?cdn=N` streams raw binary, not JSON. The fixed CDN list avoids open-proxy SSRF.

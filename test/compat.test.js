@@ -23,7 +23,7 @@ const db = {
     };
   },
 };
-const request = (mode) => worker.fetch(new Request(`https://api.ngocminh.io.vn/?type=keybox&mode=${mode}`), { DB: db }, {});
+const request = (mode) => worker.fetch(new Request(`https://api.ngocminh.io.vn/keybox?action=${mode}`), { DB: db }, {});
 
 test("public XML metadata is correct", () => {
   assert.equal(extractPublicXmlMetadata(XML).deviceId, "Sample-Device");
@@ -41,7 +41,7 @@ test("status matches Keybox Hub keys; unverified stays unverified; no private ke
   assert.equal(result.keyboxes[0].profile, "unknown");
   assert.equal(result.keyboxes[0].is_rkp, null);
   assert.equal(result.keyboxes[0].device_id, "Sample-Device");
-  assert.equal(result.keyboxes[0].download_url, "https://api.ngocminh.io.vn/?type=keybox&mode=download&id=7");
+  assert.equal(result.keyboxes[0].download_url, "https://api.ngocminh.io.vn/keybox?action=download&id=7");
   assert.ok(!JSON.stringify(result).includes("PRIVATE-SECRET"));
 });
 
@@ -63,4 +63,11 @@ test("sources has Keybox Hub-compatible fields", async () => {
   assert.equal(result.sources[0].type, "raw_url");
   assert.equal(result.sources[0].last_fetched_at, "2026-11-15T13:20:12Z");
   assert.equal(result.sources[0].last_status, "success");
+});
+
+test("old query-mode links remain valid for existing clients", async () => {
+  const legacy = await worker.fetch(new Request("https://api.ngocminh.io.vn/?type=keybox&mode=health"), { DB: db }, {});
+  const fresh = await worker.fetch(new Request("https://api.ngocminh.io.vn/keybox?action=health"), { DB: db }, {});
+  assert.equal(legacy.status,200);
+  assert.equal(fresh.status,200);
 });

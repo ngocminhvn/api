@@ -2,10 +2,18 @@
   "name": "api",
   "main": "index.js",
   "compatibility_date": "2026-11-15",
-  "routes": [
+  "d1_databases": [
     {
-      "pattern": "api.ngocminh.io.vn",
-      "custom_domain": true
+      "binding": "DB",
+      "database_name": "api-keybox",
+      "database_id": "439a46be-d917-45a0-87dd-146d14704df3",
+      "migrations_dir": "migrations"
     }
+  ],
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+  "routes": [
+    { "pattern": "api.ngocminh.io.vn", "custom_domain": true }
   ]
 }

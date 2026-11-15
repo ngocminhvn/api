@@ -1,59 +1,39 @@
 # ngocminh API
 
-Backend-only Cloudflare Worker for [api.ngocminh.io.vn](https://api.ngocminh.io.vn/). No React, Next.js, HTML, Express or local Node server is required.
+Backend-only Cloudflare Worker, with Keybox data ingestion from publicly shared sources.
 
-## Structure
+## Layout
 
-```text
-index.js                    # Entry point and ?type=&mode= router
-public/
-  keybox/
-    index.js                # Keybox mode dispatcher
-    upstream.js             # Read-only Keybox Hub-compatible backend adapter
-wrangler.jsonc              # Cloudflare Workers deployment
-test/router.test.mjs        # Local tests
-```
+- `index.js`: root API router (`?type=keybox&mode=...`) and scheduled handler.
+- `public/keybox/ingest.js`: source-specific ingestion (not publicly served).
+- `public/keybox/index.js`: database API responses.
+- `migrations/0001_init.sql`: D1 SQLite tables and initial sources.
+- `wrangler.jsonc`: D1 binding and 10-minute cron.
 
-The `public/` directory holds **JavaScript backend modules**, not public static files. Do not set `assets.directory` to `./public`, or their source files could be exposed as assets. Wrangler bundles statically imported modules with `index.js`.
+Cloudflare Workers bundles the JS modules in `public/` into the Worker. **Do not configure `assets.directory` to `public`**; these files implement backend logic, not static assets.
+
+## Cron
+
+Every 10 minutes, one source is selected in a rotating 3-source cycle, so each source is visited approximately every 30 minutes:
+
+- Evoker: `https://evoker.qzz.io/key` (`encoded`): raw XML, Base64, hex, or common JSON encoding. Any custom codec not supported by this parser requires a separate decoder.
+- Zuri: raw public XML from GitHub (`raw_xml`).
+- KOWX: `https://keybox.kowx712.cc/api/keyboxes` (`json_index`): select rows with `status=valid`, follow at most 3 allowlisted HTTPS download URLs per scan. Unknown JSON response shapes, dynamic download paths, or unsupported URLs are logged as errors and require adaptation after observing an actual response.
+
+All XML records are deduplicated by SHA-256 in D1, while failed polls leave existing data untouched. **Validation currently checks only a basic XML envelope, not certificate validity or Google revocation status.** The `valid` claim from KOWX remains source-provided and cannot be considered independently verified. Files from these sources may contain private keys; only use explicitly public or authorized sources.
 
 ## Endpoints
 
-| Request | Purpose |
-| --- | --- |
-| `/?type=keybox&mode=health` | Local worker health, no upstream required |
-| `/?type=keybox&mode=status` | Keybox status and metadata |
-| `/?type=keybox&mode=update` | Last keybox update |
-| `/?type=keybox&mode=sources` | Configured sources |
-| `/?type=keybox&mode=download&profile=rkp` | Download public keybox for profile `rkp` |
-| `/?type=keybox&mode=download&profile=hw&format=json` | JSON download |
+- `/?type=keybox&mode=health`: Worker health and whether D1 is bound.
+- `/?type=keybox&mode=sources`: scan times, count and errors by source.
+- `/?type=keybox&mode=status`: unverified inventory summary.
+- `/?type=keybox&mode=update`: latest attempted source check.
+- `/?type=keybox&mode=download`: random imported XML, or `&id=NUMBER`, or `&format=json`.
 
-All listed endpoints are **GET** (HEAD is supported). Responses for `status`, `update`, `sources`, and `download` are forwarded from a configured upstream service. The `type` query parameter is reserved for selecting API modules; use `profile=rkp` or `profile=hw` for download filters.
+RKP/HW profile classification is **not implemented**; `profile=rkp` / `profile=hw` return HTTP 422 rather than a fabricated classification. Use `profile=all` or omit profile.
 
-## Configure a Keybox backend
+## Setup
 
-This project references [hzzmonetvn/keyboxhub-web](https://github.com/hzzmonetvn/keyboxhub-web)'s **public API contract**, but does **not** copy its Node/Express/SQLite code or its database, keys, automatic certificate validation, XML repair, login, upload, or Telegram bot. It is an HTTP backend adapter only.
+Database: `api-keybox` in APAC, already created and initialized. Wrangler uses the database ID in `wrangler.jsonc`. GitHub-connected Workers Builds deploys `main` with `npx wrangler deploy`. The separate D1 initialization has already been applied; subsequent changes can use `npx wrangler d1 migrations apply api-keybox --remote`.
 
-Set the Worker environment variable `KEYBOX_UPSTREAM_URL` to the base HTTPS URL of **a Keybox Hub server you control or are authorized to use** (no trailing `/api`). Example:
-
-```sh
-npx wrangler secret put KEYBOX_UPSTREAM_URL
-# Enter your own Keybox Hub server's HTTPS base URL at the prompt.
-```
-
-Or configure the variable in Cloudflare Dashboard > Workers & Pages > api > Settings > Variables and Secrets.
-
-If it is not configured, `mode=health` still works, while data-dependent endpoints return **HTTP 503** and `keybox_upstream_not_configured`. They do not invent `strong`, `device`, or `banned` results. An upstream outage returns **HTTP 502**. Worker secrets and certificates must never be committed to Git.
-
-Only read-only public endpoints are exposed. No client-provided URL can control the upstream, and the adapter does not proxy authentication or write methods.
-
-To run the original Keybox Hub functionality on Cloudflare Workers without an external server requires a separate port: replace `better-sqlite3` with D1, file storage with R2, port the crypto/validation logic and add auth/rate limiting.
-
-## Test and deployment
-
-```sh
-node --test
-npx wrangler deploy --dry-run
-npx wrangler deploy
-```
-
-GitHub-connected Cloudflare Workers Builds deploys pushes to `main` using the existing `npx wrangler deploy` command. The custom domain configuration is unchanged.
+Test locally: `npm test`. To test cron locally with Wrangler: `npx wrangler dev --test-scheduled` and invoke the scheduled test URL supported by Wrangler. Cron times are UTC; runs may be delayed. The production cron requires a successful deployment.

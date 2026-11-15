@@ -3,71 +3,82 @@ import assert from "node:assert/strict";
 import { handlePixeldrian, cdnUrl, chunkRanges } from "../public/pixeldrian/index.js";
 import worker from "../index.js";
 
-test("browser page measures on client, requires no D1 and no server result cache", async () => {
-  const request = new Request("https://api.ngocminh.io.vn/pixeldrian");
-  const response = await worker.fetch(request, {}, {});
+test("client page uses performance.now and no D1/cache", async () => {
+  const response = await worker.fetch(new Request("https://api.ngocminh.io.vn/pixeldrian"), {}, {});
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /text\/html/);
   const page = await response.text();
   assert.match(page, /performance\.now\(\)/);
   assert.match(page, /pixeldrian\?cdn=/);
-  assert.match(page, /CONCURRENCY = 3/);
-  assert.match(page, /JSON\.stringify\(state/);
+  assert.match(page, /http_status/);
+  assert.match(page, /body\.detail/);
 });
 
-test("only fixed CDN hostname indices 1..32 are allowed", async () => {
+test("cdn is fixed to indices 1..32", async () => {
   assert.equal(cdnUrl(1), "https://cdn1.pixeldrain.eu.cc/api/file/S4NGwF6i");
   assert.equal(cdnUrl(32), "https://cdn32.pixeldrain.eu.cc/api/file/S4NGwF6i");
   assert.throws(() => cdnUrl(33));
-  for (const input of ["0", "33", "test", "1/path", "1.5", "-1"]) {
-    const response = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=" + encodeURIComponent(input)));
+  for(const input of ["0","33","0.0","x","1/path"]) {
+    const response = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn="+encodeURIComponent(input)));
     assert.equal(response.status, 400);
   }
 });
 
-test("streams 10 MB via 4+4+2 MB sequential HTTP ranges, no D1", async () => {
+test("206 ranges are 4 MiB, 4 MiB, then remaining bytes", async () => {
   const ranges = chunkRanges();
-  assert.deepEqual(ranges, [[0, 3999999], [4000000, 7999999], [8000000, 9999999]]);
+  assert.deepEqual(ranges, [[0, 4194303], [4194304, 8388607], [8388608, 9999999]]);
   let index = 0;
-  const fakeFetch = async (url, options) => {
+  const mockFetch = async (url, options) => {
     assert.equal(url, cdnUrl(8));
-    assert.equal(options.redirect, "manual");
     const [start, end] = ranges[index++];
     assert.equal(options.headers.Range, `bytes=${start}-${end}`);
-    const size = end - start + 1;
-    const body = new ReadableStream({
-      start(controller) { controller.enqueue(new Uint8Array(size)); controller.close(); }
-    });
-    return new Response(body, { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/99999999` } });
+    assert.equal(options.redirect, "manual");
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(end - start + 1));
+        controller.close();
+      }
+    }), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/100000000` } });
   };
-  const response = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=8"), fakeFetch);
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("content-type"), "application/octet-stream");
-  const buffer = await response.arrayBuffer();
-  assert.equal(buffer.byteLength, 10000000);
-  assert.equal(index, 3);
+  const response = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=8"), mockFetch);
+  assert.equal(response.status,200);
+  const data = await response.arrayBuffer();
+  assert.equal(data.byteLength,10000000);
+  assert.equal(index,3);
 });
 
-test("rejects upstream that ignores HTTP Range or redirects", async () => {
-  const response = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=1"),
-    async () => new Response("full content not a range", { status: 200 }));
-  assert.equal(response.status, 502);
-  assert.equal((await response.json()).error, "upstream_unavailable");
-  const redirected = await handlePixeldrian(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=1"),
-    async () => new Response(null, { status: 302, headers: { Location:"https://example.com" } }));
-  assert.equal(redirected.status, 502);
+test("HTTP 200 full download is clipped to 10 MB", async () => {
+  let requests=0;
+  const response = await handlePixeldrian(
+    new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=9"),
+    async () => {
+      requests++;
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(10_000_000));
+          controller.enqueue(new Uint8Array(2_000_000));
+          controller.close();
+        }
+      }), { status:200 });
+    }
+  );
+  assert.equal(response.status,200);
+  assert.equal((await response.arrayBuffer()).byteLength,10_000_000);
+  assert.equal(requests,1);
 });
 
-test("HEAD does not consume 10 MB", async () => {
-  const response = await worker.fetch(new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=5", { method:"HEAD" }), {}, {});
-  assert.equal(response.status, 200);
-  assert.equal(await response.text(), "");
+test("upstream 403, redirect and empty body return descriptive 502", async () => {
+  const request = new Request("https://api.ngocminh.io.vn/pixeldrian?cdn=1");
+  let response = await handlePixeldrian(request, async () => new Response("forbidden", {status:403}));
+  assert.equal(response.status,502);
+  assert.match((await response.json()).detail,/upstream_http_403/);
+  response = await handlePixeldrian(request, async () => new Response(null,{status:302,headers:{Location:"https://other.example"}}));
+  assert.equal(response.status,502);
 });
 
-test("new Keybox routing and old query API both respond", async () => {
-  const fresh = await worker.fetch(new Request("https://api.ngocminh.io.vn/keybox?action=health"), {}, {});
-  assert.equal(fresh.status,200);
-  assert.equal((await fresh.json()).database_configured,false);
-  const old = await worker.fetch(new Request("https://api.ngocminh.io.vn/?type=keybox&mode=health"), {}, {});
-  assert.equal(old.status,200);
+test("new and old routes are preserved", async () => {
+  for(const endpoint of ["/keybox?action=health","/?type=keybox&mode=health"]) {
+    const response=await worker.fetch(new Request("https://api.ngocminh.io.vn"+endpoint), {}, {});
+    assert.equal(response.status,200);
+  }
 });

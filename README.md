@@ -72,11 +72,15 @@ A rerun button starts a completely fresh scan; **there is no D1, KV, or result c
 For each of `cdn1` to `cdn32.pixeldrain.eu.cc`, the page fetches `/pixeldrian?cdn=N` on the same origin.
 The Worker acts only as a streaming proxy to avoid cross-origin CORS problems; the timed connection is
 **your browser → Cloudflare Worker → CDN**, so results include Cloudflare proxy overhead and do **not**
-measure a direct browser → CDN link. Each probe streams exactly 10,000,000 bytes (10 decimal MB)
-using sequential 4 MB, 4 MB, and 2 MB HTTP byte-range requests. CDNs that do not honor ranges
-are reported as errors. The maximum network transfer for one full scan is about **320 MB**, plus overhead.
+measure a direct browser → CDN link. Each probe streams exactly 10,000,000 bytes (10 decimal MB). It requests sequential 4 MiB
+chunks when a CDN responds with HTTP 206 Partial Content; if the CDN ignores the Range header and
+responds with HTTP 200, the Worker safely streams only the first 10 MB and cancels the remainder.
+An HTTP 403/429, redirect, or a prematurely closed connection is returned as an error rather than
+fabricating a download-speed result. The maximum network transfer for one full scan is about **320 MB**, plus overhead.
 At most 3 downloads run concurrently and each has a 90-second browser timeout.
 
 `/pixeldrian` is a browser-rendered JSON report (Content-Type: text/html), not a literal server-generated
 JSON response; a server cannot determine the visitor's download time on its own.
 The proxy `/pixeldrian?cdn=N` streams raw binary, not JSON. The fixed CDN list avoids open-proxy SSRF.
+
+The page shows detailed error information (upstream HTTP status or network failure) if a CDN test cannot complete. `speed_MBps` and `speed_Mbps` are null only for failed 10 MB tests, never guessed.

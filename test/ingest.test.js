@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeXml, validIndexEntries, sourceNameForSchedule, extractVsteamKeybox } from "../public/keybox/ingest.js";
+import { normalizeXml, validIndexEntries, sourceNameForCron, DAILY_SOURCE_CRONS, extractVsteamKeybox } from "../public/keybox/ingest.js";
 import worker from "../index.js";
 const XML = '<?xml version="1.0"?><AndroidAttestation><Keybox>abc</Keybox></AndroidAttestation>';
 test("recognizes raw, encoded, and JSON-wrapped XML", () => {
@@ -14,9 +14,14 @@ test("index selects only explicitly valid rows", () => {
   assert.equal(list.length, 2);
   assert.throws(() => validIndexEntries({ ok: true }), /unsupported_json_index_shape/);
 });
-test("cron round robin covers five sources", () => {
-  const t = Math.floor(Date.now()/600000)*600000;
-  assert.equal(new Set([0,1,2,3,4].map(x=>sourceNameForSchedule(t+x*600000))).size,5);
+test("five daily cron triggers each map to a distinct source", () => {
+  assert.deepEqual(Object.keys(DAILY_SOURCE_CRONS), [
+    "0 0 * * *", "10 0 * * *", "20 0 * * *", "30 0 * * *", "40 0 * * *"
+  ]);
+  assert.deepEqual(Object.keys(DAILY_SOURCE_CRONS).map(sourceNameForCron), [
+    "evoker", "zuri", "kowx", "vsteam_hypervs", "vsteam_colourvs"
+  ]);
+  assert.equal(sourceNameForCron("*/10 * * * *"), null);
 });
 test("router health and error outputs", async () => {
   const get = (qs) => worker.fetch(new Request("https://api.ngocminh.io.vn/"+qs), {}, {});

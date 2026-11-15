@@ -11,9 +11,18 @@
     }
   ],
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": [
+      "0 0 * * *",
+      "10 0 * * *",
+      "20 0 * * *",
+      "30 0 * * *",
+      "40 0 * * *"
+    ]
   },
   "routes": [
-    { "pattern": "api.ngocminh.io.vn", "custom_domain": true }
+    {
+      "pattern": "api.ngocminh.io.vn",
+      "custom_domain": true
+    }
   ]
 }

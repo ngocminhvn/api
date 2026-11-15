@@ -8,13 +8,25 @@ Backend-only Cloudflare Worker, with Keybox data ingestion from publicly shared 
 - `public/keybox/ingest.js`: source-specific ingestion (not publicly served).
 - `public/keybox/index.js`: database API responses.
 - `migrations/0001_init.sql`: D1 SQLite tables and initial sources.
-- `wrangler.jsonc`: D1 binding and 10-minute cron.
+- `wrangler.jsonc`: D1 binding and five daily cron schedules.
 
 Cloudflare Workers bundles the JS modules in `public/` into the Worker. **Do not configure `assets.directory` to `public`**; these files implement backend logic, not static assets.
 
 ## Cron
 
-Every 10 minutes, one source is selected in a rotating 5-source cycle, so each source is visited approximately every 50 minutes:
+Each source is scanned **once per day** on five separate Cloudflare Cron Triggers to reduce the per-invocation CPU cost. All times below are in Vietnam (Asia/Ho_Chi_Minh, UTC+7):
+
+| Time | Source | UTC cron |
+| --- | --- | --- |
+| 07:00 | Evoker | `0 0 * * *` |
+| 07:10 | Zuri GitHub | `10 0 * * *` |
+| 07:20 | KOWX | `20 0 * * *` |
+| 07:30 | VSTeam HyperVS | `30 0 * * *` |
+| 07:40 | VSTeam ColourVS | `40 0 * * *` |
+
+The Worker uses `event.cron` to select the correct source. These five schedules use all five Cron Trigger slots of Workers Free. Propagation may take up to 15 minutes. Individual source errors do not erase previous keyboxes.
+
+Sources:
 
 - Evoker: `https://evoker.qzz.io/key` (`encoded`): raw XML, Base64, hex, or common JSON encoding. Any custom codec not supported by this parser requires a separate decoder.
 - Zuri: raw public XML from GitHub (`raw_xml`).

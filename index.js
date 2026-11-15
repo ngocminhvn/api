@@ -55,7 +55,7 @@ export default {
     }
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(scheduledIngest(env, event.scheduledTime).then(
+    ctx.waitUntil(scheduledIngest(env, event.cron).then(
       result => console.log("keybox_cron", JSON.stringify(result))
     ));
   },

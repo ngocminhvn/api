@@ -5,8 +5,20 @@ const MAX_INDEX_ITEMS = 3;
 const TIMEOUT_MS = 8000;
 const SOURCE_NAMES = ["evoker", "zuri", "kowx", "vsteam_hypervs", "vsteam_colourvs"];
 
-export function sourceNameForSchedule(scheduledTime) {
-  return SOURCE_NAMES[Math.floor(scheduledTime / 600000) % SOURCE_NAMES.length];
+// 5 daily cron expressions at 00:00–00:40 UTC = 07:00–07:40 in Vietnam.
+// Each invocation scans exactly one source to reduce CPU cost on Workers Free.
+export const DAILY_SOURCE_CRONS = Object.freeze({
+  "0 0 * * *": "evoker",
+  "10 0 * * *": "zuri",
+  "20 0 * * *": "kowx",
+  "30 0 * * *": "vsteam_hypervs",
+  "40 0 * * *": "vsteam_colourvs",
+});
+
+export function sourceNameForCron(cronExpression) {
+  return Object.hasOwn(DAILY_SOURCE_CRONS, cronExpression)
+    ? DAILY_SOURCE_CRONS[cronExpression]
+    : null;
 }
 
 function publicHttps(urlText, base) {
@@ -234,9 +246,10 @@ export async function ingestSource(db, source) {
   return { source: source.name, imported, result, error };
 }
 
-export async function scheduledIngest(env, scheduledTime) {
+export async function scheduledIngest(env, cronExpression) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
-  const name = sourceNameForSchedule(scheduledTime);
+  const name = sourceNameForCron(cronExpression);
+  if (!name) throw new Error("Unknown daily Keybox cron expression");
   const source = await env.DB.prepare("SELECT * FROM keybox_sources WHERE name=? AND enabled=1")
     .bind(name).first();
   if (!source) return { source: name, imported: 0, result: "disabled_or_missing" };

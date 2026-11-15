@@ -3,7 +3,7 @@ const MAX_XML = 256 * 1024;
 const MAX_INDEX = 512 * 1024;
 const MAX_INDEX_ITEMS = 3;
 const TIMEOUT_MS = 8000;
-const SOURCE_NAMES = ["evoker", "zuri", "kowx"];
+const SOURCE_NAMES = ["evoker", "zuri", "kowx", "vsteam_hypervs", "vsteam_colourvs"];
 
 export function sourceNameForSchedule(scheduledTime) {
   return SOURCE_NAMES[Math.floor(scheduledTime / 600000) % SOURCE_NAMES.length];
@@ -107,6 +107,47 @@ export function normalizeXml(input, depth = 0) {
   return null;
 }
 
+
+/**
+ * VSTeam exposes a JSON PI profile. Only decode the KEYBOX field;
+ * never treat other fields (tokens, props, or settings) as keybox XML.
+ * Handles a direct XML string or the supported Base64/Hex/JSON encodings.
+ * Unknown proprietary encryption is reported, not guessed.
+ */
+export function extractVsteamKeybox(body) {
+  let data = body;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); }
+    catch { throw new Error("vsteam_invalid_json"); }
+  }
+  const visited = new WeakSet();
+  function find(node, depth = 0) {
+    if (node === null || typeof node !== "object" || depth > 8 || visited.has(node)) return undefined;
+    visited.add(node);
+    const properties = Object.entries(node).slice(0, 200);
+    for (const [name, value] of properties) {
+      if (name.toLowerCase() !== "keybox") continue;
+      if (typeof value === "string") return normalizeXml(value);
+      if (value && typeof value === "object") {
+        const xml = normalizeXml(JSON.stringify(value));
+        if (xml) return xml;
+      }
+      return null;
+    }
+    for (const [, value] of properties) {
+      if (value && typeof value === "object") {
+        const result = find(value, depth + 1);
+        if (result !== undefined) return result;
+      }
+    }
+    return undefined;
+  }
+  const xml = find(data);
+  if (xml === undefined) throw new Error("vsteam_keybox_field_missing");
+  if (!xml) throw new Error("vsteam_keybox_decode_failed");
+  return xml;
+}
+
 export function validIndexEntries(payload) {
   const list = Array.isArray(payload) ? payload :
     [payload?.keyboxes, payload?.data?.keyboxes, payload?.data?.items, payload?.data,
@@ -146,7 +187,19 @@ export async function ingestSource(db, source) {
   let result = "success";
   let error = null;
   try {
-    if (source.kind === "raw_xml" || source.kind === "encoded") {
+    if (source.name === "vsteam_hypervs" || source.name === "vsteam_colourvs") {
+      const expectedBranch = source.name === "vsteam_hypervs" ? "HyperVS" : "ColourVS";
+      const sourceUrl = new URL(source.url);
+      if (sourceUrl.protocol !== "https:" || sourceUrl.hostname !== "vsteam.vn" ||
+          sourceUrl.pathname !== "/api/profile" || sourceUrl.searchParams.get("type") !== "pi" ||
+          sourceUrl.searchParams.get("branch") !== expectedBranch) {
+        throw new Error("invalid_vsteam_source_url");
+      }
+      const body = await fetchText(sourceUrl.toString(), MAX_INDEX);
+      const xml = extractVsteamKeybox(body);
+      await saveXml(db, source, xml, source.url, "unknown");
+      imported = 1;
+    } else if (source.kind === "raw_xml" || source.kind === "encoded") {
       const body = await fetchText(source.url, MAX_XML);
       const xml = normalizeXml(body);
       if (!xml) throw new Error("unsupported_encoding_or_invalid_xml");

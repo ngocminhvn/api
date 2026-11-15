@@ -14,11 +14,11 @@ Cloudflare Workers bundles the JS modules in `public/` into the Worker. **Do not
 
 ## Cron
 
-Every 10 minutes, one source is selected in a rotating 3-source cycle, so each source is visited approximately every 30 minutes:
+Every 10 minutes, one source is selected in a rotating 5-source cycle, so each source is visited approximately every 50 minutes:
 
 - Evoker: `https://evoker.qzz.io/key` (`encoded`): raw XML, Base64, hex, or common JSON encoding. Any custom codec not supported by this parser requires a separate decoder.
 - Zuri: raw public XML from GitHub (`raw_xml`).
-- KOWX: `https://keybox.kowx712.cc/api/keyboxes` (`json_index`): select rows with `status=valid`, follow at most 3 allowlisted HTTPS download URLs per scan. Unknown JSON response shapes, dynamic download paths, or unsupported URLs are logged as errors and require adaptation after observing an actual response.
+- VSTeam HyperVS/ColourVS: `https://vsteam.vn/api/profile?type=pi&branch=HyperVS` and `https://vsteam.vn/api/profile?type=pi&branch=ColourVS` (`encoded`): find JSON field `KEYBOX` (case-insensitive, including nested objects), decode conventional Base64/Hex or direct XML, and store separately per branch. Proprietary encryption or an unexpected JSON shape is recorded as an error, not silently accepted.\n- KOWX: `https://keybox.kowx712.cc/api/keyboxes` (`json_index`): select rows with `status=valid`, follow at most 3 allowlisted HTTPS download URLs per scan. Unknown JSON response shapes, dynamic download paths, or unsupported URLs are logged as errors and require adaptation after observing an actual response.
 
 All XML records are deduplicated by SHA-256 in D1, while failed polls leave existing data untouched. **Validation currently checks only a basic XML envelope, not certificate validity or Google revocation status.** The `valid` claim from KOWX remains source-provided and cannot be considered independently verified. Files from these sources may contain private keys; only use explicitly public or authorized sources.
 
@@ -36,4 +36,4 @@ RKP/HW profile classification is **not implemented**; `profile=rkp` / `profile=h
 
 Database: `api-keybox` in APAC, already created and initialized. Wrangler uses the database ID in `wrangler.jsonc`. GitHub-connected Workers Builds deploys `main` with `npx wrangler deploy`. The separate D1 initialization has already been applied; subsequent changes can use `npx wrangler d1 migrations apply api-keybox --remote`.
 
-Test locally: `npm test`. To test cron locally with Wrangler: `npx wrangler dev --test-scheduled` and invoke the scheduled test URL supported by Wrangler. Cron times are UTC; runs may be delayed. The production cron requires a successful deployment.
+Test locally: `npm test`. To test cron locally with Wrangler: `npx wrangler dev --test-scheduled` and invoke the scheduled test URL supported by Wrangler. Cron times are UTC; runs may be delayed. Each VSTeam branch is tracked independently in `mode=sources`. The production cron requires a successful deployment.

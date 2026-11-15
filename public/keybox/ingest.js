@@ -51,7 +51,7 @@ async function readLimited(response, maximum) {
 async function fetchText(url, maxSize) {
   const response = await fetch(url, {
     method: "GET",
-    redirect: "error",
+    redirect: "manual",
     headers: { Accept: "application/json, application/xml, text/plain;q=0.9" },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });

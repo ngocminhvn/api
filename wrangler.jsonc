@@ -1,0 +1,11 @@
+{
+  "name": "api",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-15",
+  "routes": [
+    {
+      "pattern": "api.ngocminh.io.vn",
+      "custom_domain": true
+    }
+  ]
+}

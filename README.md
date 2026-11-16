@@ -64,23 +64,27 @@ Only metadata (never XML/private key material) is returned by `mode=status`. The
 
 ## Client-speed Pixeldrain benchmark
 
-Open `https://api.ngocminh.io.vn/pixeldrian` **on the device whose download speed you want to measure**.
-This small HTML page runs JavaScript in your browser and shows an incrementally updated JSON result in a `<pre>` block.
-It measures download duration with your device's `performance.now()` clock, rather than the Worker's clock.
-A rerun button starts a completely fresh scan; **there is no D1, KV, or result cache for this endpoint**.
+Open `https://api.ngocminh.io.vn/pixeldrian` **on the device whose direct CDN download speed you want to measure**.
 
-For each of `cdn1` to `cdn32.pixeldrain.eu.cc`, the page fetches `/pixeldrian?cdn=N` on the same origin.
-The Worker acts only as a streaming proxy to avoid cross-origin CORS problems; the timed connection is
-**your browser → Cloudflare Worker → CDN**, so results include Cloudflare proxy overhead and do **not**
-measure a direct browser → CDN link. Each probe streams exactly 10,000,000 bytes (10 decimal MB). It requests sequential 4 MiB
-chunks when a CDN responds with HTTP 206 Partial Content; if the CDN ignores the Range header and
-responds with HTTP 200, the Worker safely streams only the first 10 MB and cancels the remainder.
-An HTTP 403/429, redirect, or a prematurely closed connection is returned as an error rather than
-fabricating a download-speed result. The maximum network transfer for one full scan is about **320 MB**, plus overhead.
-At most 3 downloads run concurrently and each has a 90-second browser timeout.
+The small HTML page runs JavaScript locally in that browser and shows a live JSON report. It uses
+`performance.now()` for timings, and connects **directly from the browser to the CDN hosts**;
+Cloudflare Worker only serves the HTML page. This endpoint does **not** use a backend proxy,
+D1, KV, or stored benchmark results. Reopening the page or clicking "Đo lại ngay" runs a new scan.
 
-`/pixeldrian` is a browser-rendered JSON report (Content-Type: text/html), not a literal server-generated
-JSON response; a server cannot determine the visitor's download time on its own.
-The proxy `/pixeldrian?cdn=N` streams raw binary, not JSON. The fixed CDN list avoids open-proxy SSRF.
+The page tests `cdn01` through `cdn32.pixeldrain.eu.cc`, file `S4NGwF6i` and up to
+10,000,000 bytes (10 decimal MB) per CDN, with 3 concurrent downloads and a 90-second
+timeout for each CDN. It sends the HTTP Range header `bytes=0-9999999` and accepts HTTP 200
+and 206. If a server ignores Range and sends the full file, the page stops reading and aborts
+the request as soon as 10 MB have been consumed; browser network buffering may cause some
+additional transfer. A successful full scan transfers roughly 320 MB of data.
 
-The page shows detailed error information (upstream HTTP status or network failure) if a CDN test cannot complete. `speed_MBps` and `speed_Mbps` are null only for failed 10 MB tests, never guessed.
+**Cross-origin limitation:** `fetch()` requires the CDN to allow CORS for this site's origin.
+If the CDN does not send suitable CORS headers, the browser rejects the request even if the
+same CDN can be downloaded with curl. The JSON records `cors_or_network_blocked` (CORS,
+DNS, or other network failure cannot reliably be distinguished by browser JavaScript) and
+leaves `speed_MBps` / `speed_Mbps` as null. **There is no silent proxy fallback** because that
+would measure the speed of a different network path. To measure a CORS-blocked CDN on Fedora,
+use `curl --range 0-9999999 --max-filesize 10000000` or a local speed-test script.
+
+The deprecated `/pixeldrian?cdn=N` proxy now returns HTTP 410 so users do not accidentally
+send test traffic through Cloudflare and confuse the result.

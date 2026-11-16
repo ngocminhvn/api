@@ -62,29 +62,38 @@ The `status` response includes `status`, `total_valid`, `total_hw_valid`, `total
 Only metadata (never XML/private key material) is returned by `mode=status`. The `mode=download&format=json` endpoint intentionally returns the requested XML as with the reference project. `mode=status` lists at most 100 items per response; `&limit=50&offset=50` paginates larger datasets.
 
 
-## Client-speed Pixeldrain benchmark
+## Pixeldrain CDN speed test (Fedora local, JSON viewer)
 
-Open `https://api.ngocminh.io.vn/pixeldrian` **on the device whose direct CDN download speed you want to measure**.
+Pixeldrain's `hotlink_detected` 403 protection blocks scripted cross-origin
+downloads from the `/pixeldrian` web page, even when the CDN works from
+the user's own Fedora command line. A browser cannot read timings for requests
+blocked by the CDN or CORS, and proxy timing does not measure the Fedora path.
 
-The small HTML page runs JavaScript locally in that browser and shows a live JSON report. It uses
-`performance.now()` for timings, and connects **directly from the browser to the CDN hosts**;
-Cloudflare Worker only serves the HTML page. This endpoint does **not** use a backend proxy,
-D1, KV, or stored benchmark results. Reopening the page or clicking "Đo lại ngay" runs a new scan.
+Use the provided **local test** instead. On Fedora, with `python3` and `curl`:
 
-The page tests `cdn01` through `cdn32.pixeldrain.eu.cc`, file `S4NGwF6i` and up to
-10,000,000 bytes (10 decimal MB) per CDN, with 3 concurrent downloads and a 90-second
-timeout for each CDN. It sends the HTTP Range header `bytes=0-9999999` and accepts HTTP 200
-and 206. If a server ignores Range and sends the full file, the page stops reading and aborts
-the request as soon as 10 MB have been consumed; browser network buffering may cause some
-additional transfer. A successful full scan transfers roughly 320 MB of data.
+```bash
+curl -fsSL https://raw.githubusercontent.com/ngocminhvn/api/main/scripts/pixeldrian_speed.py -o /tmp/pixeldrian_speed.py
+python3 /tmp/pixeldrian_speed.py
+```
 
-**Cross-origin limitation:** `fetch()` requires the CDN to allow CORS for this site's origin.
-If the CDN does not send suitable CORS headers, the browser rejects the request even if the
-same CDN can be downloaded with curl. The JSON records `cors_or_network_blocked` (CORS,
-DNS, or other network failure cannot reliably be distinguished by browser JavaScript) and
-leaves `speed_MBps` / `speed_Mbps` as null. **There is no silent proxy fallback** because that
-would measure the speed of a different network path. To measure a CORS-blocked CDN on Fedora,
-use `curl --range 0-9999999 --max-filesize 10000000` or a local speed-test script.
+The Python script makes direct `curl` requests to fixed URLs
+`https://cdn01.pixeldrain.eu.cc/api/file/S4NGwF6i` through `cdn32`.
+Each request sends `Range: bytes=0-9999999`. If a CDN ignores Range
+and responds HTTP 200 with the entire multi-GB file, Python stops reading the
+subprocess's stdout when exactly 10,000,000 bytes have been received and
+terminates the subprocess. It does not follow HTTP redirects or attempt
+to circumvent hotlink protection. HTTP errors, DNS errors and downloads
+that transfer fewer than 10 MB are reported as errors with null speed.
+Runs are sequential by default so CDNs do not share local download bandwidth;
+`--jobs 2` or `--jobs 3` is optional but makes rankings less comparable.
 
-The deprecated `/pixeldrian?cdn=N` proxy now returns HTTP 410 so users do not accidentally
-send test traffic through Cloudflare and confuse the result.
+By default, it creates `~/Downloads/pixeldrian-results.json`.
+Open `https://api.ngocminh.io.vn/pixeldrian` and select that JSON file.
+The page displays the ranking of **successfully completed** 10 MB tests,
+a table of errors, and the raw JSON. All import and sorting happens in the
+browser using the File API; nothing is uploaded or saved to D1/KV.
+
+The web endpoint's old `?cdn=N` streaming proxy has been disabled (HTTP 410).
+This separates trustworthy client-local download measurements from
+Cloudflare Worker network paths. Read the script before running it;
+a full successful pass can download about **320 MB** of traffic.

@@ -1,6 +1,6 @@
 import { PAGE } from "./page.js";
 
-// Browser-only speed test: the Worker serves HTML but never fetches CDN files.
+// Fedora speed test results viewer: the Worker only serves static HTML and never fetches CDN files.
 // Keeping a small discontinued-proxy response prevents accidental bandwidth use.
 const CDN_COUNT = 32;
 const FILE_ID = "S4NGwF6i";
@@ -25,7 +25,7 @@ export async function handlePixeldrian(request) {
   if (url.searchParams.has("cdn")) {
     return json({
       error: "proxy_disabled",
-      message: "Open /pixeldrian in a browser to measure a direct CDN connection. The old ?cdn=N proxy is disabled.",
+      message: "Run scripts/pixeldrian_speed.py on Fedora and import its JSON into /pixeldrian. The old ?cdn=N proxy is disabled.",
     }, 410);
   }
   return new Response(PAGE, {
@@ -33,7 +33,7 @@ export async function handlePixeldrian(request) {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, no-cache, max-age=0",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://*.pixeldrain.eu.cc; base-uri 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     },
   });
 }
